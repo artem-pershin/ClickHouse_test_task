@@ -20,7 +20,10 @@ create table similar_goods_edges on cluster '{cluster_all_replicas}'
     similar_goods Array(String),
     date Date
 ) Engine = ReplicatedMergeTree('/clickhouse/tables/{database}/{table}', '{cluster_all_replica}')
-order by tuple();
+partition by date
+order by tuple()
+TTL date + INTERVAL 30 day
+settings ttl_only_drop_parts = 1;;
 
 create table similar_goods on cluster '{cluster_all_replicas}'
 (
