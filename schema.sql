@@ -14,6 +14,30 @@ create table wbdailydata on cluster '{cluster}'
 as wbdailydata_shard
 ENGINE = Distributed('{cluster}', 'default', 'wbdailydata_shard', sku);
 
+create table wbdailydata_sells_agg_shard on cluster '{cluster}'
+(
+   name String,
+   date Date,
+   sells Decimal64(4)
+)
+ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/{database}/{table}/{shard}', '{replica}')
+primary key (name)
+PARTITION BY toYYYYMM(date)
+order by (name, date);
+
+create table wbdailydata_sells_agg on cluster '{cluster}'
+as wbdailydata_sells_agg_shard
+ENGINE = Distributed('{cluster}', 'default', 'wbdailydata_sells_agg_shard', rand());
+
+create materialized view wbdailydata_sells_agg_mv on cluster '{cluster}' to dailydata_sells_agg_shard
+as
+select
+name,
+toDate(date) as date,
+sum(sells) as sells
+from wbdailydata_shard
+group by name, date;
+
 create table similar_goods_edges on cluster '{cluster_all_replicas}'
 (
     good_name String,
@@ -23,7 +47,7 @@ create table similar_goods_edges on cluster '{cluster_all_replicas}'
 partition by date
 order by tuple()
 TTL date + INTERVAL 30 day
-settings ttl_only_drop_parts = 1;;
+settings ttl_only_drop_parts = 1;
 
 create table similar_goods on cluster '{cluster_all_replicas}'
 (
@@ -51,7 +75,7 @@ values (['A', 'B', 'C', 'D', 'AA', 'CC', 'DD']), (['BB']);
 select
     name,
     sum(sells)
-from wbdailydata
+from wbdailydata_sells_agg
 where name in (select arrayJoin(similar_goods) from similar_goods where has(similar_goods, 'A'))
 and (date >= now() - interval 30 day)
 group by name
